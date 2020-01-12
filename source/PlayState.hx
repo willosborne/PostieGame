@@ -1,5 +1,7 @@
 package;
 
+import Save.PlayerSave;
+import flixel.util.FlxTimer;
 import haxe.EnumTools;
 import flixel.group.FlxGroup;
 import flixel.addons.editors.tiled.TiledObjectLayer;
@@ -7,14 +9,12 @@ import flixel.FlxObject;
 import flixel.FlxCamera.FlxCameraFollowStyle;
 import flixel.FlxG;
 import flixel.addons.editors.tiled.TiledTileLayer;
-import flixel.FlxBasic;
 import openfl.Assets;
 import flixel.tile.FlxTilemap;
 import flixel.addons.tile.FlxTilemapExt;
 import flixel.FlxState;
 import flixel.FlxSprite;
 import flixel.addons.editors.tiled.TiledMap;
-import flixel.addons.editors.tiled.TiledLayer;
 import Collectable;
 
 class PlayState extends FlxState
@@ -26,9 +26,12 @@ class PlayState extends FlxState
 	var player:Player;
 
 	var save: Save = {
-		player_x: 432,
-		player_y: 300,
-		level: "test_12x12.tmx"
+		playerX: 432,
+		playerY: 300,
+		level: "test_12x12.tmx",
+		playerSave: {
+			collectables: []
+		}
 	};
 
 	var currentLevel: String;
@@ -40,17 +43,33 @@ class PlayState extends FlxState
 	var entities: FlxGroup;
 	var interactables: FlxGroup;
 	var touchables: FlxGroup;
+	var edgePortals: FlxTypedGroup<EdgePortal>;
 
-	var portals: Map<String, PortalEdge> = new Map();
+	var touchedPortal: EdgePortal;
+	var transitioningLevel: Bool = false;
+
+	// var portals: Map<String, PortalEdge> = new Map();
 
 	override public function create():Void
 	{
-		player = new Player(save.player_x, save.player_y, this);
+		player = new Player(save.playerX, save.playerY, this);
+		loadLevel(save.level);
+
+		super.create();
+	}
+
+	function loadLevel(path: String) {
+		trace('Loading level $path');
+		// empty group
+		clear();
+
+		// init groups
 		entities = new FlxGroup();
 		interactables = new FlxGroup();
 		touchables = new FlxGroup();
+		edgePortals = new FlxTypedGroup<EdgePortal>();
 
-		currentLevel = "assets/data/" + save.level;
+		currentLevel = "assets/data/" + path;
 
 		FlxG.camera.follow(player, FlxCameraFollowStyle.PLATFORMER);
 		FlxG.camera.followLerp = 0.1;
@@ -91,8 +110,6 @@ class PlayState extends FlxState
 		add(entities);
 		add(player);
 		add(tilesFg);
-
-		super.create();
 	}
 
 	function handleTileLayer(layer:TiledTileLayer) {
@@ -141,11 +158,14 @@ class PlayState extends FlxState
 					touchables.add(collect);
 				
 				case "portalEdge":
-					var portal:PortalEdge = new PortalEdge(object.x, object.y, 
+					var portal: EdgePortal = new EdgePortal(object.x, object.y, 
 						object.width, object.height,
 						object.name,
 						object.properties.get('targetLevel'), 
-						object.properties.get('targetPortal'));
+						object.properties.get('targetPortal'),
+						object.properties.get('entryDirection'),
+						object.properties.get('exitDirection'));
+					edgePortals.add(portal);
 
 				default:
 					throw('Unknown object type ${object.type}');
@@ -177,20 +197,60 @@ class PlayState extends FlxState
 		}
 	}
 
+	function handlePortalTouch(player: Player, other: EdgePortal) {
+		if (!transitioningLevel) {
+			transitioningLevel = true;
+
+			player.setControl(false);
+			player.beginAutoWalk(other.exitDirection);
+
+			touchedPortal = other;
+		}
+	}
+
 	function handleInteract(player: Player, other: FlxSprite) {
 		if (Std.is(other, SavePoint)) {
-			this.save = {
-				player_x: other.x,
-				player_y: other.y,
-				level: currentLevel
-			};
-			trace('Saving: ${this.save}');
+			saveGame(other);
 		}
+	}
+
+
+	function saveGame(savePoint: FlxSprite) {
+		var playerSave:PlayerSave = player.save();
+
+		this.save = {
+			playerX: savePoint.x,
+			playerY: savePoint.y,
+			level: currentLevel,
+			playerSave: playerSave
+		};
+		trace('Saving: ${this.save}');
 	}
 
 	public function respawn() {
 		if (this.save != null) {
-			player.setPosition(save.player_x, save.player_y);
+			player.setPosition(save.playerX, save.playerY);
+		}
+	}
+
+	public function triggerLevelChange() {
+		if (transitioningLevel) {
+			loadLevel(touchedPortal.targetLevel);
+
+			for (portal in edgePortals) {
+				if (portal.name == touchedPortal.targetPortal) {
+					player.x = portal.x + portal.width / 2;
+					player.y = portal.y  + portal.height - player.height;
+					player.last.set(portal.x, portal.y + portal.height - player.height);
+					FlxG.camera.snapToTarget();
+				}
+			}
+
+			new FlxTimer().start(0.25, function(Timer:FlxTimer) {
+				player.stopAutoWalk();
+				player.setControl(true);
+				transitioningLevel = false;
+			}, 1);
 		}
 	}
 
@@ -204,6 +264,10 @@ class PlayState extends FlxState
 		FlxG.mouse.visible = false;
 
 		FlxG.overlap(player, touchables, handleTouch);
+		FlxG.overlap(player, edgePortals, handlePortalTouch);
+
+		// if (touchedPortal == null) {
+		// }
 
 		super.update(elapsed);
 	}

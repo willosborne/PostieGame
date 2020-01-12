@@ -1,8 +1,5 @@
 import flixel.math.FlxRandom;
 import flixel.system.FlxSound;
-import openfl.display.Preloader.DefaultPreloader;
-import flixel.addons.effects.chainable.FlxTrailEffect;
-import flixel.effects.particles.FlxParticle;
 import flixel.effects.particles.FlxEmitter;
 import flixel.FlxObject;
 import flixel.FlxG;
@@ -10,9 +7,13 @@ import flixel.util.FlxColor;
 import flixel.FlxSprite;
 import DustPuff;
 import Collectable;
+import Save;
 
 class Player extends FlxSprite {
-    var jumping:Bool;
+    var jumping: Bool;
+    var hasControl: Bool = true;
+    var autoWalk: Int = FlxObject.NONE;
+
     inline static var grav = 800;
     inline static var jumpGrav = 350;
 
@@ -117,8 +118,14 @@ class Player extends FlxSprite {
 
     override function update(elapsed:Float) {
         if (!inWorldBounds()) {
-            state.respawn();
-            // makeSmokePuff(0, 0, FlxObject.NONE);
+            if (autoWalk != FlxObject.NONE) {
+                // just walked off level transition
+                state.triggerLevelChange();
+            }
+            else {
+                // we just died
+				state.respawn();
+            }
         }
         var onGround = isTouching(FlxObject.FLOOR);
         var onWall = (isTouching(FlxObject.RIGHT) && FlxG.keys.anyPressed([RIGHT])) || 
@@ -146,89 +153,87 @@ class Player extends FlxSprite {
         drag.x = onGround ? groundDrag : airDrag;
         acceleration.x = 0;
 
-        if (FlxG.keys.anyPressed([LEFT])) {
-            var accel = onGround ? groundAccel : airAccel;
-            acceleration.x = -accel;
-            if (onGround)
-                animation.play("run_right");
-            flip = true;
-            flipX = true;
-        }
-        else if (FlxG.keys.anyPressed([RIGHT])) {
-            var accel = onGround ? groundAccel : airAccel;
-            acceleration.x = accel;
-            if (onGround)
-                animation.play("run_right");
-            flip = false;
-            flipX = false;
-        }
-        else {
-            if (onGround)
-				animation.play("idle_right");
-        }
-        if (FlxG.keys.anyJustPressed([UP, Z, SPACE])) {
-            if (onGroundTimer > 0) {
-                // ground jump
-                onGroundTimer = 0;
-                velocity.y = -maxVelocity.y / 2.5;
-                jumping = true;
-                acceleration.y = jumpGrav;
-                animation.play("jump");
+        var moveLeft = (hasControl && FlxG.keys.anyPressed([LEFT])) || autoWalk == FlxObject.LEFT;
+        var moveRight = (hasControl && FlxG.keys.anyPressed([RIGHT])) || autoWalk == FlxObject.RIGHT;
 
-                if (flipX)
-					makeSmokePuff(10, 18, FlxObject.RIGHT);
-                else 
-					makeSmokePuff(6, 18, FlxObject.LEFT);
+        if (moveLeft) {
+            move(FlxObject.LEFT, onGround);
+        } else if (moveRight) {
+            move(FlxObject.RIGHT, onGround);
+        } else {
+            if (onGround)
+                animation.play("idle_right");
+        }
 
-                var snd = FlxG.random.getObject([hup1, hup2]);
-                snd.play(true);
-            }
-            else if (onWallTimer > 0 && hasWallJump()) {
-                // wall jump
-                onWallTimer = 0;
-                velocity.y = -maxVelocity.y / 2.5;
-                jumping = true;
-                acceleration.y = jumpGrav;
-                animation.play("jump");
-                if (flipX)
-					makeSmokePuff(2, 14, FlxObject.DOWN);
-                else
-					makeSmokePuff(10, 14, FlxObject.DOWN);
+        if (hasControl) {
+            if (FlxG.keys.anyJustPressed([UP, Z, SPACE])) {
+                if (onGroundTimer > 0) {
+                    // ground jump
+                    onGroundTimer = 0;
+                    velocity.y = -maxVelocity.y / 2.5;
+                    jumping = true;
+                    acceleration.y = jumpGrav;
+                    animation.play("jump");
 
-                if (onWall) {
-					flipX = !flipX;
-					velocity.x = maxXVel * 4 * (flipX ? -1 : 1);
-					acceleration.x = 0;
+                    if (flipX)
+                        makeSmokePuff(10, 18, FlxObject.RIGHT);
+                    else
+                        makeSmokePuff(6, 18, FlxObject.LEFT);
+
+                    var snd = FlxG.random.getObject([hup1, hup2]);
+                    snd.play(true);
+                } else if (onWallTimer > 0 && hasWallJump()) {
+                    // wall jump
+                    onWallTimer = 0;
+                    velocity.y = -maxVelocity.y / 2.5;
+                    jumping = true;
+                    acceleration.y = jumpGrav;
+                    animation.play("jump");
+                    if (flipX)
+                        makeSmokePuff(2, 14, FlxObject.DOWN);
+                    else
+                        makeSmokePuff(10, 14, FlxObject.DOWN);
+
+                    if (onWall) {
+                        flipX = !flipX;
+                        velocity.x = maxXVel * 4 * (flipX ? -1 : 1);
+                        acceleration.x = 0;
+                    }
+                    onWall = false;
+
+                    var snd = FlxG.random.getObject([hup1, hup2]);
+                    snd.play(true);
+                } else if (remainingAirJumps > 0) {
+                    // air jump
+                    velocity.y = -maxVelocity.y / 2.5;
+                    jumping = true;
+                    acceleration.y = jumpGrav;
+                    animation.play("jump");
+
+                    remainingAirJumps -= 1;
+                    if (flipX)
+                        makePoof(10, 18, FlxObject.RIGHT);
+                    else
+                        makePoof(6, 18, FlxObject.LEFT);
+
+                    var snd = FlxG.random.getObject([hup1, hup2]);
+                    snd.play(true);
                 }
-                onWall = false;
-
-                var snd = FlxG.random.getObject([hup1, hup2]);
-                snd.play(true);
             }
-            else if (!onWall && remainingAirJumps > 0) {
-                // air jump
-                velocity.y = -maxVelocity.y / 2.5;
-                jumping = true;
-                acceleration.y = jumpGrav;
-                animation.play("jump");
+            
 
-				remainingAirJumps -= 1;
-                if (flipX)
-					makePoof(10, 18, FlxObject.RIGHT);
-                else 
-					makePoof(6, 18, FlxObject.LEFT);
-                
-                var snd = FlxG.random.getObject([hup1, hup2]);
-                snd.play(true);
+            if (FlxG.keys.anyJustPressed([X])) {
+                state.interact();
             }
         }
+
         if (velocity.y > 0 && !onGround) {
             jumping = false;
             acceleration.y = grav;
             animation.play("fall");
         }
         if (jumping && !onGround) {
-            if (FlxG.keys.anyPressed([UP, Z, SPACE])) {
+            if (FlxG.keys.anyPressed([UP, Z, SPACE]) && hasControl) {
 				acceleration.y = jumpGrav;
             }
             else {
@@ -249,10 +254,28 @@ class Player extends FlxSprite {
             }
         }
 
-        if (FlxG.keys.anyJustPressed([X])) {
-            state.interact();
-        }
         super.update(elapsed);
+    }
+
+    function move(direction: Int, onGround: Bool) {
+        if (direction == FlxObject.RIGHT) {
+			var accel = onGround ? groundAccel : airAccel;
+			acceleration.x = accel;
+			if (onGround)
+				animation.play("run_right");
+			flip = false;
+			flipX = false;
+        }
+        else if (direction == FlxObject.LEFT) {
+			var accel = onGround ? groundAccel : airAccel;
+			acceleration.x = -accel;
+			if (onGround)
+				animation.play("run_right");
+			flip = true;
+			flipX = true;
+        }
+        else 
+            throw("Invalid run direction");
     }
 
     function makeSmokePuff(dx:Int, dy:Int, direction:Int=FlxObject.NONE, n:Int=4) {
@@ -300,6 +323,50 @@ class Player extends FlxSprite {
     public function removeCollectable(collect: CollectableType) {
         collectables.set(collect, false);
     }
+    
+    public function setControl(hasControl: Bool) {
+        this.hasControl = hasControl;
+        if (hasControl) {
+            autoWalk = FlxObject.NONE;
+        }
+    }
+
+    public function beginAutoWalk(direction: String) {
+        if (autoWalk != FlxObject.NONE) 
+            return;
+        switch(direction) {
+            case "left":
+                autoWalk = FlxObject.LEFT;
+            case "right":
+                autoWalk = FlxObject.RIGHT;
+            default: 
+                throw("Invalid walk direction; expected left or right");
+        }
+        trace('Walking $direction');
+    }
+
+    public function stopAutoWalk() {
+        autoWalk = FlxObject.NONE;
+    }
+
+    public function save(): PlayerSave {
+        var collected:Array<CollectableType> = new Array();
+        for (key => value in collectables) {
+            if (value) {
+                collected.push(key);
+            }
+        }
+        return {
+            collectables: collected
+        };
+    }
+
+    public function restore(playerSave: PlayerSave) {
+        collectables.clear();
+        for (collectable in playerSave.collectables) {
+            collectables.set(collectable, true);
+        }
+    }
 
     function hasWallClimb() : Bool {
         return collectables.get(WallClimb) == true;
@@ -316,4 +383,5 @@ class Player extends FlxSprite {
     function maxAirJumps() : Int {
         return hasDoubleJump() ? 1 : 0;
     }
+
 }

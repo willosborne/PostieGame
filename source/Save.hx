@@ -1,7 +1,13 @@
+import Collectable.CollectableType;
 import flixel.math.FlxPoint;
+
+typedef PlayerSave = {
+    collectables: Array<CollectableType>
+}
 
 typedef Save = {
     level: String,
-    player_x: Float,
-    player_y: Float
+    playerX: Float,
+    playerY: Float,
+    playerSave: PlayerSave
 }

@@ -118,6 +118,8 @@
  <objectgroup id="4" name="entities">
   <object id="10" name="exitTestLevel" type="portalEdge" x="-12" y="468" width="24" height="72">
    <properties>
+    <property name="entryDirection" value="right"/>
+    <property name="exitDirection" value="left"/>
     <property name="targetLevel" value="test_12x12.tmx"/>
     <property name="targetPortal" value="exitCity1"/>
    </properties>
